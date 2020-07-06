@@ -286,7 +286,7 @@ class DeepARNetwork(mx.gluon.HybridBlock):
         )
 
         outputs_dropped = (
-            ZoneoutCell(cell, zoneout_states=self.dropout_rate)
+            F.ZoneoutCell(cell, zoneout_states=self.dropout_rate)
             if self.dropout_rate > 0.0
             else outputs_raw
         )
