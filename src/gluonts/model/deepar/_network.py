@@ -285,8 +285,11 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             ),
         )
 
-        outputs_dropped = ZoneoutCell(cell, zoneout_states=self.dropout_rate) \
-                         if self.dropout_rate > 0.0 else outputs_raw
+        outputs_dropped = (
+            ZoneoutCell(cell, zoneout_states=self.dropout_rate)
+            if self.dropout_rate > 0.0
+            else outputs_raw
+        )
 
         # outputs_dropped: (batch_size, seq_len, num_cells)
         # state: list of (batch_size, num_cells) tensors
@@ -312,8 +315,9 @@ class DeepARTrainingNetwork(DeepARNetwork):
     beta
         Weight of temporal activation regularization.
     """
+
     @validated()
-    def __init__(self, alpha = 0, beta = 0, **kwargs) -> None:
+    def __init__(self, alpha=0, beta=0, **kwargs) -> None:
         super().__init__(**kwargs)
         self.alpha = alpha
         self.beta = beta
@@ -322,7 +326,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
             self.ar_loss = nlp.loss.ActivationRegularizationLoss(alpha)
         if beta:
             self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(beta)
-    
+
     def distribution(
         self,
         feat_static_cat: Tensor,
@@ -369,7 +373,11 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         distr_args = self.proj_distr_args(rnn_outputs)
 
-        return self.distr_output.distribution(distr_args, scale=scale), rnn_outputs, rnn_outputs_raw
+        return (
+            self.distr_output.distribution(distr_args, scale=scale),
+            rnn_outputs,
+            rnn_outputs_raw,
+        )
 
     # noinspection PyMethodOverriding,PyPep8Naming
     def hybrid_forward(
@@ -466,7 +474,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # add temporal activation regularization
         if self.beta:
             weighted_loss = weighted_loss + self.tar_loss(*rnn_outputs_raw)
-        
+
         return weighted_loss, loss
 
 
