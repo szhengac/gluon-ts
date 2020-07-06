@@ -15,6 +15,7 @@ from typing import List, Optional, Tuple
 
 # Third-party imports
 import mxnet as mx
+import gluonnlp as nlp
 
 # Standard library imports
 import numpy as np
@@ -99,11 +100,12 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             for k in range(num_layers):
                 cell = RnnCell(hidden_size=num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
-                cell = (
-                    mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=dropout_rate)
-                    if dropout_rate > 0.0
-                    else cell
-                )
+                # add dropout later, to support regularization
+                # cell = (
+                #     mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=dropout_rate)
+                #     if dropout_rate > 0.0
+                #     else cell
+                # )
                 self.rnn.add(cell)
             self.rnn.cast(dtype=dtype)
             self.embedder = FeatureEmbedder(
@@ -269,7 +271,7 @@ class DeepARNetwork(mx.gluon.HybridBlock):
         inputs = F.concat(input_lags, time_feat, repeated_static_feat, dim=-1)
 
         # unroll encoder
-        outputs, state = self.rnn.unroll(
+        outputs_raw, state = self.rnn.unroll(
             inputs=inputs,
             length=subsequences_length,
             layout="NTC",
@@ -283,14 +285,44 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             ),
         )
 
-        # outputs: (batch_size, seq_len, num_cells)
+        outputs_dropped = ZoneoutCell(cell, zoneout_states=self.dropout_rate) \
+                         if self.dropout_rate > 0.0 else outputs_raw
+
+        # outputs_dropped: (batch_size, seq_len, num_cells)
         # state: list of (batch_size, num_cells) tensors
         # scale: (batch_size, 1, *target_shape)
         # static_feat: (batch_size, num_features + prod(target_shape))
-        return outputs, state, scale, static_feat
+        # outputs_raw: (batch_size, seq_len, num_cells), to support temporal activation regularization
+        return outputs_dropped, state, scale, static_feat, outputs_raw
 
 
 class DeepARTrainingNetwork(DeepARNetwork):
+    """
+    Construct a DeepAR network for training, 
+    with activation regularization and temporal activatio regularization.
+
+    The regularizations are based on the paper "Regularizing and Optimizing LSTM Language Models".
+    The implementation is based on GluonNLP: 
+    https://github.com/dmlc/gluon-nlp/blob/5dc6b9c9fab9e99b155554a50466c514b879ea84/src/gluonnlp/loss/activation_regularizer.py
+
+    Parameters
+    ----------
+    alpha
+        Weight of activation regularization.
+    beta
+        Weight of temporal activation regularization.
+    """
+    @validated()
+    def __init__(self, alpha = 0, beta = 0, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.alpha = alpha
+        self.beta = beta
+
+        if alpha:
+            self.ar_loss = nlp.loss.ActivationRegularizationLoss(alpha)
+        if beta:
+            self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(beta)
+    
     def distribution(
         self,
         feat_static_cat: Tensor,
@@ -324,7 +356,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # i.e. by providing future data as well
         F = getF(feat_static_cat)
 
-        rnn_outputs, _, scale, _ = self.unroll_encoder(
+        rnn_outputs, _, scale, _, rnn_outputs_raw = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
@@ -337,7 +369,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         distr_args = self.proj_distr_args(rnn_outputs)
 
-        return self.distr_output.distribution(distr_args, scale=scale)
+        return self.distr_output.distribution(distr_args, scale=scale), rnn_outputs, rnn_outputs_raw
 
     # noinspection PyMethodOverriding,PyPep8Naming
     def hybrid_forward(
@@ -373,7 +405,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         """
 
-        distr = self.distribution(
+        distr, rnn_outputs_dropped, rnn_outputs_raw = self.distribution(
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
             past_time_feat=past_time_feat,
@@ -425,6 +457,16 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # need to mask possible nans and -inf
         loss = F.where(condition=loss_weights, x=loss, y=F.zeros_like(loss))
 
+        # TODO: need to double check how to deal with weighted_loss
+        # according to the implementation of trainer, it seems that only the first return value is used
+        # so, we only add regularization ot weighted_loss here
+        # add activation regularization
+        if self.alpha:
+            weighted_loss = weighted_loss + self.ar_loss(*rnn_outputs_dropped)
+        # add temporal activation regularization
+        if self.beta:
+            weighted_loss = weighted_loss + self.tar_loss(*rnn_outputs_raw)
+        
         return weighted_loss, loss
 
 
@@ -590,7 +632,7 @@ class DeepARPredictionNetwork(DeepARNetwork):
         """
 
         # unroll the decoder in "prediction mode", i.e. with past data only
-        _, state, scale, static_feat = self.unroll_encoder(
+        _, state, scale, static_feat, _ = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
