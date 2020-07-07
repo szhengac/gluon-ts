@@ -625,7 +625,7 @@ class DeepARRegNetwork(DeepARNetwork):
         with self.name_scope():
             self.rnn_layers = []
             self.dropout_layers = []
-            for k in range(num_layers):
+            for k in range(self.num_layers):
                 rnn_layer = mx.gluon.rnn.HybridSequentialRNNCell()
                 cell = RnnCell(hidden_size=num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
