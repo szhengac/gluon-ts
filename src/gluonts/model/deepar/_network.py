@@ -623,7 +623,6 @@ class DeepARRegNetwork(DeepARNetwork):
         ]
 
         with self.name_scope():
-            self.proj_distr_args = distr_output.get_args_proj()
             self.rnn_layers = []
             self.dropout_layers = []
             for k in range(num_layers):
