@@ -52,7 +52,7 @@ from gluonts.transform.feature import (
 )
 
 # Relative imports
-from ._network import DeepARPredictionNetwork, DeepARTrainingNetwork
+from ._network import DeepARPredictionNetwork, DeepARTrainingNetwork, DeepARRegTrainingNetwork
 
 
 class DeepAREstimator(GluonEstimator):
@@ -143,6 +143,8 @@ class DeepAREstimator(GluonEstimator):
         num_parallel_samples: int = 100,
         imputation_method: Optional[MissingValueImputation] = None,
         dtype: DType = np.float32,
+        alpha: float = 0, 
+        beta: float = 0,
     ) -> None:
         super().__init__(trainer=trainer, dtype=dtype)
 
@@ -211,6 +213,9 @@ class DeepAREstimator(GluonEstimator):
             if imputation_method is not None
             else DummyValueImputation(self.distr_output.value_in_support)
         )
+
+        self.alpha = alpha
+        self.beta = beta
 
     @classmethod
     def derive_auto_fields(cls, train_iter):
@@ -309,6 +314,24 @@ class DeepAREstimator(GluonEstimator):
         )
 
     def create_training_network(self) -> DeepARTrainingNetwork:
+        if self.alpha or self.beta:
+            return DeepARRegTrainingNetwork(
+                num_layers=self.num_layers,
+                num_cells=self.num_cells,
+                cell_type=self.cell_type,
+                history_length=self.history_length,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
+                distr_output=self.distr_output,
+                dropout_rate=self.dropout_rate,
+                cardinality=self.cardinality,
+                embedding_dimension=self.embedding_dimension,
+                lags_seq=self.lags_seq,
+                scaling=self.scaling,
+                dtype=self.dtype,
+                alpha=self.alpha, 
+                beta=self.beta
+            )
         return DeepARTrainingNetwork(
             num_layers=self.num_layers,
             num_cells=self.num_cells,

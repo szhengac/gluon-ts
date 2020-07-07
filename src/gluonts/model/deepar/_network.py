@@ -100,12 +100,11 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             for k in range(num_layers):
                 cell = RnnCell(hidden_size=num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
-                # add dropout later, to support regularization
-                # cell = (
-                #     mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=dropout_rate)
-                #     if dropout_rate > 0.0
-                #     else cell
-                # )
+                cell = (
+                    mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=dropout_rate)
+                    if dropout_rate > 0.0
+                    else cell
+                )
                 self.rnn.add(cell)
             self.rnn.cast(dtype=dtype)
             self.embedder = FeatureEmbedder(
@@ -271,7 +270,7 @@ class DeepARNetwork(mx.gluon.HybridBlock):
         inputs = F.concat(input_lags, time_feat, repeated_static_feat, dim=-1)
 
         # unroll encoder
-        outputs_raw, state = self.rnn.unroll(
+        outputs, state = self.rnn.unroll(
             inputs=inputs,
             length=subsequences_length,
             layout="NTC",
@@ -285,48 +284,14 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             ),
         )
 
-        outputs_dropped = (
-            F.ZoneoutCell(cell, zoneout_states=self.dropout_rate)
-            if self.dropout_rate > 0.0
-            else outputs_raw
-        )
-
-        # outputs_dropped: (batch_size, seq_len, num_cells)
+        # outputs: (batch_size, seq_len, num_cells)
         # state: list of (batch_size, num_cells) tensors
         # scale: (batch_size, 1, *target_shape)
         # static_feat: (batch_size, num_features + prod(target_shape))
-        # outputs_raw: (batch_size, seq_len, num_cells), to support temporal activation regularization
-        return outputs_dropped, state, scale, static_feat, outputs_raw
+        return outputs, state, scale, static_feat
 
 
 class DeepARTrainingNetwork(DeepARNetwork):
-    """
-    Construct a DeepAR network for training, 
-    with activation regularization and temporal activatio regularization.
-
-    The regularizations are based on the paper "Regularizing and Optimizing LSTM Language Models".
-    The implementation is based on GluonNLP: 
-    https://github.com/dmlc/gluon-nlp/blob/5dc6b9c9fab9e99b155554a50466c514b879ea84/src/gluonnlp/loss/activation_regularizer.py
-
-    Parameters
-    ----------
-    alpha
-        Weight of activation regularization.
-    beta
-        Weight of temporal activation regularization.
-    """
-
-    @validated()
-    def __init__(self, alpha=0, beta=0, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.alpha = alpha
-        self.beta = beta
-
-        if alpha:
-            self.ar_loss = nlp.loss.ActivationRegularizationLoss(alpha)
-        if beta:
-            self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(beta)
-
     def distribution(
         self,
         feat_static_cat: Tensor,
@@ -360,7 +325,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # i.e. by providing future data as well
         F = getF(feat_static_cat)
 
-        rnn_outputs, _, scale, _, rnn_outputs_raw = self.unroll_encoder(
+        rnn_outputs, _, scale, _ = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
@@ -373,11 +338,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         distr_args = self.proj_distr_args(rnn_outputs)
 
-        return (
-            self.distr_output.distribution(distr_args, scale=scale),
-            rnn_outputs,
-            rnn_outputs_raw,
-        )
+        return self.distr_output.distribution(distr_args, scale=scale)
 
     # noinspection PyMethodOverriding,PyPep8Naming
     def hybrid_forward(
@@ -413,7 +374,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         """
 
-        distr, rnn_outputs_dropped, rnn_outputs_raw = self.distribution(
+        distr = self.distribution(
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
             past_time_feat=past_time_feat,
@@ -464,16 +425,6 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         # need to mask possible nans and -inf
         loss = F.where(condition=loss_weights, x=loss, y=F.zeros_like(loss))
-
-        # TODO: need to double check how to deal with weighted_loss
-        # according to the implementation of trainer, it seems that only the first return value is used
-        # so, we only add regularization ot weighted_loss here
-        # add activation regularization
-        if self.alpha:
-            weighted_loss = weighted_loss + self.ar_loss(*rnn_outputs_dropped)
-        # add temporal activation regularization
-        if self.beta:
-            weighted_loss = weighted_loss + self.tar_loss(*rnn_outputs_raw)
 
         return weighted_loss, loss
 
@@ -640,7 +591,7 @@ class DeepARPredictionNetwork(DeepARNetwork):
         """
 
         # unroll the decoder in "prediction mode", i.e. with past data only
-        _, state, scale, static_feat, _ = self.unroll_encoder(
+        _, state, scale, static_feat = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
@@ -659,3 +610,339 @@ class DeepARPredictionNetwork(DeepARNetwork):
             scale=scale,
             begin_states=state,
         )
+
+
+class DeepARRegNetwork(DeepARNetwork):
+    @validated()
+    def __init__(self, **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+
+        RnnCell = {"lstm": mx.gluon.rnn.LSTMCell, "gru": mx.gluon.rnn.GRUCell}[
+            self.cell_type
+        ]
+
+        with self.name_scope():
+            self.proj_distr_args = distr_output.get_args_proj()
+            self.rnn_layers = []
+            self.dropout_layers = []
+            for k in range(num_layers):
+                rnn_layer = mx.gluon.rnn.HybridSequentialRNNCell()
+                cell = RnnCell(hidden_size=num_cells)
+                cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
+                rnn_layer.add(cell)
+                self.rnn_layers.append(rnn_layer)
+                if dropout_rate > 0.0:
+                    self.dropout_layers.append(mx.gluon.rnn.ZoneoutCell(zoneout_states=dropout_rate))
+                else:
+                    self.dropout_layers.append(None)
+
+    def unroll_encoder(
+        self,
+        F,
+        feat_static_cat: Tensor,  # (batch_size, num_features)
+        feat_static_real: Tensor,  # (batch_size, num_features)
+        past_time_feat: Tensor,  # (batch_size, history_length, num_features)
+        past_target: Tensor,  # (batch_size, history_length, *target_shape)
+        past_observed_values: Tensor,  # (batch_size, history_length, *target_shape)
+        future_time_feat: Optional[
+            Tensor
+        ],  # (batch_size, prediction_length, num_features)
+        future_target: Optional[
+            Tensor
+        ],  # (batch_size, prediction_length, *target_shape)
+    ) -> Tuple[Tensor, List, Tensor, Tensor]:
+        """
+        Unrolls the LSTM encoder over past and, if present, future data.
+        Returns outputs and state of the encoder, plus the scale of past_target
+        and a vector of static features that was constructed and fed as input
+        to the encoder.
+        All tensor arguments should have NTC layout.
+        """
+
+        if future_time_feat is None or future_target is None:
+            time_feat = past_time_feat.slice_axis(
+                axis=1,
+                begin=self.history_length - self.context_length,
+                end=None,
+            )
+            sequence = past_target
+            sequence_length = self.history_length
+            subsequences_length = self.context_length
+        else:
+            time_feat = F.concat(
+                past_time_feat.slice_axis(
+                    axis=1,
+                    begin=self.history_length - self.context_length,
+                    end=None,
+                ),
+                future_time_feat,
+                dim=1,
+            )
+            sequence = F.concat(past_target, future_target, dim=1)
+            sequence_length = self.history_length + self.prediction_length
+            subsequences_length = self.context_length + self.prediction_length
+
+        # (batch_size, sub_seq_len, *target_shape, num_lags)
+        lags = self.get_lagged_subsequences(
+            F=F,
+            sequence=sequence,
+            sequence_length=sequence_length,
+            indices=self.lags_seq,
+            subsequences_length=subsequences_length,
+        )
+
+        # scale is computed on the context length last units of the past target
+        # scale shape is (batch_size, 1, *target_shape)
+        _, scale = self.scaler(
+            past_target.slice_axis(
+                axis=1, begin=-self.context_length, end=None
+            ),
+            past_observed_values.slice_axis(
+                axis=1, begin=-self.context_length, end=None
+            ),
+        )
+
+        # (batch_size, num_features)
+        embedded_cat = self.embedder(feat_static_cat)
+
+        # in addition to embedding features, use the log scale as it can help
+        # prediction too
+        # (batch_size, num_features + prod(target_shape))
+        static_feat = F.concat(
+            embedded_cat,
+            feat_static_real,
+            F.log(scale)
+            if len(self.target_shape) == 0
+            else F.log(scale.squeeze(axis=1)),
+            dim=1,
+        )
+
+        # (batch_size, subsequences_length, num_features + 1)
+        repeated_static_feat = static_feat.expand_dims(axis=1).repeat(
+            axis=1, repeats=subsequences_length
+        )
+
+        # (batch_size, sub_seq_len, *target_shape, num_lags)
+        lags_scaled = F.broadcast_div(lags, scale.expand_dims(axis=-1))
+
+        # from (batch_size, sub_seq_len, *target_shape, num_lags)
+        # to (batch_size, sub_seq_len, prod(target_shape) * num_lags)
+        input_lags = F.reshape(
+            data=lags_scaled,
+            shape=(
+                -1,
+                subsequences_length,
+                len(self.lags_seq) * prod(self.target_shape),
+            ),
+        )
+
+        # (batch_size, sub_seq_len, input_dim)
+        inputs = F.concat(input_lags, time_feat, repeated_static_feat, dim=-1)
+
+        states = []
+        outputs_raw = []
+        outputs_dropped = []
+
+        encoded = inputs
+        for rnn_layer, dropout_layer in zip(self.rnn_layers, self.dropout_layers):
+            # unroll encoder
+            encoded, state = self.rnn.unroll(
+                inputs=encoded,
+                length=subsequences_length,
+                layout="NTC",
+                merge_outputs=True,
+                begin_state=self.rnn.begin_state(
+                    func=F.zeros,
+                    dtype=self.dtype,
+                    batch_size=inputs.shape[0]
+                    if isinstance(inputs, mx.nd.NDArray)
+                    else 0,
+                ),
+            )
+            states.append(state)
+            outputs_raw.append(encoded)
+            if self.dropout_rate > 0.0:
+                encoded = dropout_layer(encoded)
+                outputs_dropped.append(encoded)
+        
+        outputs = F.cast(encoded, dtype=self.dtype)
+
+        # outputs: (batch_size, seq_len, num_cells)
+        # state: list of (batch_size, num_cells) tensors
+        # scale: (batch_size, 1, *target_shape)
+        # static_feat: (batch_size, num_features + prod(target_shape))
+        return outputs, states, scale, static_feat, encoded_raw, encoded_dropped
+
+class DeepARRegTrainingNetwork(DeepARRegNetwork):
+    """
+    Construct a DeepAR network for training, 
+    with activation regularization and temporal activatio regularization.
+
+    The regularizations are based on the paper "Regularizing and Optimizing LSTM Language Models".
+    The implementation is based on GluonNLP: 
+    https://github.com/dmlc/gluon-nlp/blob/5dc6b9c9fab9e99b155554a50466c514b879ea84/src/gluonnlp/loss/activation_regularizer.py
+
+    Parameters
+    ----------
+    alpha
+        Weight of activation regularization.
+    beta
+        Weight of temporal activation regularization.
+    """
+    def __init__(self, 
+        alpha = 0: float,
+        beta = 0: float, 
+        **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.alpha = alpha
+        self.beta = beta
+
+        if alpha:
+            self.ar_loss = nlp.loss.ActivationRegularizationLoss(alpha)
+        if beta:
+            self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(beta)
+    
+    def distribution(
+        self,
+        feat_static_cat: Tensor,
+        feat_static_real: Tensor,
+        past_time_feat: Tensor,
+        past_target: Tensor,
+        past_observed_values: Tensor,
+        future_time_feat: Tensor,
+        future_target: Tensor,
+        future_observed_values: Tensor,
+    ) -> Distribution:
+        """
+
+        Returns the distribution predicted by the model on the range of
+        past_target and future_target.
+
+        The distribution is obtained by unrolling the network with the true
+        target, this is also the distribution that is being minimized during
+        training. This can be used in anomaly detection, see for instance
+        examples/anomaly_detection.py.
+
+        Input arguments are the same as for the hybrid_forward method.
+
+        Returns
+        -------
+        Distribution
+            a distribution object whose mean has shape:
+            (batch_size, context_length + prediction_length).
+        """
+        # unroll the decoder in "training mode"
+        # i.e. by providing future data as well
+        F = getF(feat_static_cat)
+
+        rnn_outputs, _, scale, _, encoded_raw, encoded_dropped = self.unroll_encoder(
+            F=F,
+            feat_static_cat=feat_static_cat,
+            feat_static_real=feat_static_real,
+            past_time_feat=past_time_feat,
+            past_target=past_target,
+            past_observed_values=past_observed_values,
+            future_time_feat=future_time_feat,
+            future_target=future_target,
+        )
+
+        distr_args = self.proj_distr_args(rnn_outputs)
+
+        return self.distr_output.distribution(distr_args, scale=scale), encoded_raw, encoded_dropped
+
+    # noinspection PyMethodOverriding,PyPep8Naming
+    def hybrid_forward(
+        self,
+        F,
+        feat_static_cat: Tensor,
+        feat_static_real: Tensor,
+        past_time_feat: Tensor,
+        past_target: Tensor,
+        past_observed_values: Tensor,
+        future_time_feat: Tensor,
+        future_target: Tensor,
+        future_observed_values: Tensor,
+    ) -> Tensor:
+        """
+        Computes the loss for training DeepAR, all inputs tensors representing
+        time series have NTC layout.
+
+        Parameters
+        ----------
+        F
+        feat_static_cat : (batch_size, num_features)
+        feat_static_real : (batch_size, num_features)
+        past_time_feat : (batch_size, history_length, num_features)
+        past_target : (batch_size, history_length, *target_shape)
+        past_observed_values : (batch_size, history_length, *target_shape, seq_len)
+        future_time_feat : (batch_size, prediction_length, num_features)
+        future_target : (batch_size, prediction_length, *target_shape)
+        future_observed_values : (batch_size, prediction_length, *target_shape)
+
+        Returns loss with shape (batch_size, context + prediction_length, 1)
+        -------
+
+        """
+
+        distr, encoded_raw, encoded_dropped = self.distribution(
+            feat_static_cat=feat_static_cat,
+            feat_static_real=feat_static_real,
+            past_time_feat=past_time_feat,
+            past_target=past_target,
+            past_observed_values=past_observed_values,
+            future_time_feat=future_time_feat,
+            future_target=future_target,
+            future_observed_values=future_observed_values,
+        )
+
+        # put together target sequence
+        # (batch_size, seq_len, *target_shape)
+        target = F.concat(
+            past_target.slice_axis(
+                axis=1,
+                begin=self.history_length - self.context_length,
+                end=None,
+            ),
+            future_target,
+            dim=1,
+        )
+
+        # (batch_size, seq_len)
+        loss = distr.loss(target)
+
+        # (batch_size, seq_len, *target_shape)
+        observed_values = F.concat(
+            past_observed_values.slice_axis(
+                axis=1,
+                begin=self.history_length - self.context_length,
+                end=self.history_length,
+            ),
+            future_observed_values,
+            dim=1,
+        )
+
+        # mask the loss at one time step iff one or more observations is missing in the target dimensions
+        # (batch_size, seq_len)
+        loss_weights = (
+            observed_values
+            if (len(self.target_shape) == 0)
+            else observed_values.min(axis=-1, keepdims=False)
+        )
+
+        weighted_loss = weighted_average(
+            F=F, x=loss, weights=loss_weights, axis=1
+        )
+
+        # need to mask possible nans and -inf
+        loss = F.where(condition=loss_weights, x=loss, y=F.zeros_like(loss))
+
+        # the trainer only uses the first return value
+        # so we only add regularization to weighted_loss
+
+        if self.alpha:
+            weighted_loss += self.ar_loss(*encoded_dropped)
+        if self.beta:
+            weighted_loss += self.tar_loss(*encoded_raw)
+
+        return weighted_loss, loss
