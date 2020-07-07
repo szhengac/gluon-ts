@@ -791,8 +791,8 @@ class DeepARRegTrainingNetwork(DeepARRegNetwork):
         Weight of temporal activation regularization.
     """
     def __init__(self, 
-        alpha = 0: float,
-        beta = 0: float, 
+        alpha: float = 0, 
+        beta: float = 0, 
         **kwargs) -> None:
         super().__init__(**kwargs)
         self.alpha = alpha
