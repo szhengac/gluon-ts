@@ -739,9 +739,9 @@ class DeepARRegNetwork(DeepARNetwork):
         # (batch_size, sub_seq_len, input_dim)
         inputs = F.concat(input_lags, time_feat, repeated_static_feat, dim=-1)
 
-        states = []
-        outputs_raw = []
-        outputs_dropped = []
+        # states = []
+        encoded_raw = []
+        encoded_dropped = []
 
         encoded = inputs
         for rnn_layer, dropout_layer in zip(self.rnn_layers, self.dropout_layers):
@@ -750,7 +750,7 @@ class DeepARRegNetwork(DeepARNetwork):
                 inputs=encoded,
                 length=subsequences_length,
                 layout="NTC",
-                merge_outputs=True,
+                merge_outputs=False,
                 begin_state=self.rnn.begin_state(
                     func=F.zeros,
                     dtype=self.dtype,
@@ -759,11 +759,13 @@ class DeepARRegNetwork(DeepARNetwork):
                     else 0,
                 ),
             )
-            states.append(state)
-            outputs_raw.append(encoded)
+            # states.append(state)
+            encoded_raw.append(F.concat(encoded))
             if self.dropout_rate > 0.0:
-                encoded = dropout_layer(encoded, state)
-                outputs_dropped.append(encoded)
+                current_encoded_dropped = []
+                for e, s in zip(encoded, state):
+                    current_encoded_dropped.append(dropout_layer(e, s))
+                encoded_dropped.append(F.concat(current_encoded_dropped))
         
         outputs = F.cast(encoded, dtype=self.dtype)
 
@@ -771,7 +773,7 @@ class DeepARRegNetwork(DeepARNetwork):
         # state: list of (batch_size, num_cells) tensors
         # scale: (batch_size, 1, *target_shape)
         # static_feat: (batch_size, num_features + prod(target_shape))
-        return outputs, states, scale, static_feat, encoded_raw, encoded_dropped
+        return outputs, state, scale, static_feat, encoded_raw, encoded_dropped
 
 class DeepARRegTrainingNetwork(DeepARRegNetwork):
     """
