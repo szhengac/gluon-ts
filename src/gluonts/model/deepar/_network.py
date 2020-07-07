@@ -762,7 +762,7 @@ class DeepARRegNetwork(DeepARNetwork):
             states.append(state)
             outputs_raw.append(encoded)
             if self.dropout_rate > 0.0:
-                encoded = dropout_layer(encoded)
+                encoded = dropout_layer(encoded, state)
                 outputs_dropped.append(encoded)
         
         outputs = F.cast(encoded, dtype=self.dtype)
