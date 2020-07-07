@@ -632,7 +632,7 @@ class DeepARRegNetwork(DeepARNetwork):
                 rnn_layer.add(cell)
                 self.rnn_layers.append(rnn_layer)
                 if self.dropout_rate > 0.0:
-                    self.dropout_layers.append(mx.gluon.rnn.ZoneoutCell(zoneout_states=self.dropout_rate))
+                    self.dropout_layers.append(mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=self.dropout_rate))
                 else:
                     self.dropout_layers.append(None)
 
