@@ -627,12 +627,12 @@ class DeepARRegNetwork(DeepARNetwork):
             self.dropout_layers = []
             for k in range(self.num_layers):
                 rnn_layer = mx.gluon.rnn.HybridSequentialRNNCell()
-                cell = RnnCell(hidden_size=num_cells)
+                cell = RnnCell(hidden_size=self.num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
                 rnn_layer.add(cell)
                 self.rnn_layers.append(rnn_layer)
-                if dropout_rate > 0.0:
-                    self.dropout_layers.append(mx.gluon.rnn.ZoneoutCell(zoneout_states=dropout_rate))
+                if self.dropout_rate > 0.0:
+                    self.dropout_layers.append(mx.gluon.rnn.ZoneoutCell(zoneout_states=self.dropout_rate))
                 else:
                     self.dropout_layers.append(None)
 
