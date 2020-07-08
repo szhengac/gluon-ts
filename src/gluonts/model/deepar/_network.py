@@ -827,7 +827,7 @@ class DeepARRegTrainingNetwork(DeepARRegNetwork):
         # i.e. by providing future data as well
         F = getF(feat_static_cat)
 
-        rnn_outputs, _, scale, _, encoded_raw, encoded_dropped = self.unroll_encoder(
+        rnn_outputs, _, scale, _ = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
@@ -840,7 +840,7 @@ class DeepARRegTrainingNetwork(DeepARRegNetwork):
 
         distr_args = self.proj_distr_args(rnn_outputs)
 
-        return self.distr_output.distribution(distr_args, scale=scale), encoded_raw, encoded_dropped
+        return self.distr_output.distribution(distr_args, scale=scale)
 
     # noinspection PyMethodOverriding,PyPep8Naming
     def hybrid_forward(
@@ -876,7 +876,7 @@ class DeepARRegTrainingNetwork(DeepARRegNetwork):
 
         """
 
-        distr, encoded_raw, encoded_dropped = self.distribution(
+        distr = self.distribution(
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
             past_time_feat=past_time_feat,
@@ -931,9 +931,9 @@ class DeepARRegTrainingNetwork(DeepARRegNetwork):
         # the trainer only uses the first return value
         # so we only add regularization to weighted_loss
 
-        if self.alpha:
-            weighted_loss += self.ar_loss(*encoded_dropped)
-        if self.beta:
-            weighted_loss += self.tar_loss(*encoded_raw)
+        # if self.alpha:
+        #     weighted_loss += self.ar_loss(*encoded_dropped)
+        # if self.beta:
+        #     weighted_loss += self.tar_loss(*encoded_raw)
 
         return weighted_loss, loss
