@@ -95,6 +95,7 @@ class DeepARNetwork(mx.gluon.HybridBlock):
         ]
 
         # debug
+        print(ZoneoutCell)
         if isinstance(ZoneoutCell, RNNZoneoutCell):
             print('RNNZoneoutCell is used')
         else:
