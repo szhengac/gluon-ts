@@ -94,6 +94,10 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             self.zoneoutcell_type
         ]
 
+        # debug
+        if isinstance(ZoneoutCell, RNNZoneoutCell):
+            print('RNNZoneoutCell is used')
+
         self.target_shape = distr_output.event_shape
 
         # TODO: is the following restriction needed?
