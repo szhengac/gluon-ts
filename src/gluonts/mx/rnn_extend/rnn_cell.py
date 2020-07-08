@@ -22,14 +22,6 @@
 """Definition of various recurrent neural network cells."""
 __all__ = ['RNNZoneoutCell']
 
-from ... import symbol, ndarray
-from ...base import string_types, numeric_types, _as_list
-from ..block import Block, HybridBlock
-from ..utils import _indent
-from .. import tensor_types
-from ..nn import LeakyReLU
-
-
 class RNNZoneoutCell(ModifierCell):
     """Applies Zoneout on base cell."""
     def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0.):
