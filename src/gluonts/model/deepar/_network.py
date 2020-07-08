@@ -624,17 +624,18 @@ class DeepARRegNetwork(DeepARNetwork):
 
         with self.name_scope():
             self.rnn_layers = []
-            self.dropout_layers = []
             for k in range(self.num_layers):
                 rnn_layer = mx.gluon.rnn.HybridSequentialRNNCell()
                 cell = RnnCell(hidden_size=self.num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
+                cell = (
+                    mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=self.dropout_rate)
+                    if self.dropout_rate > 0.0
+                    else cell
+                )
                 rnn_layer.add(cell)
+                rnn_layer.cast(dtype=self.dtype)
                 self.rnn_layers.append(rnn_layer)
-                if self.dropout_rate > 0.0:
-                    self.dropout_layers.append(mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=self.dropout_rate))
-                else:
-                    self.dropout_layers.append(None)
 
     def unroll_encoder(
         self,
@@ -739,10 +740,6 @@ class DeepARRegNetwork(DeepARNetwork):
         # (batch_size, sub_seq_len, input_dim)
         inputs = F.concat(input_lags, time_feat, repeated_static_feat, dim=-1)
 
-        # states = []
-        encoded_raw = []
-        encoded_dropped = []
-
         encoded = inputs
         for rnn_layer, dropout_layer in zip(self.rnn_layers, self.dropout_layers):
             # unroll encoder
@@ -759,21 +756,14 @@ class DeepARRegNetwork(DeepARNetwork):
                     else 0,
                 ),
             )
-            # states.append(state)
-            encoded_raw.append(F.concat(encoded))
-            if self.dropout_rate > 0.0:
-                current_encoded_dropped = []
-                for e, s in zip(encoded, state):
-                    current_encoded_dropped.append(dropout_layer(e, s))
-                encoded_dropped.append(F.concat(current_encoded_dropped))
         
-        outputs = F.cast(encoded, dtype=self.dtype)
+        outputs = encoded
 
         # outputs: (batch_size, seq_len, num_cells)
         # state: list of (batch_size, num_cells) tensors
         # scale: (batch_size, 1, *target_shape)
         # static_feat: (batch_size, num_features + prod(target_shape))
-        return outputs, state, scale, static_feat, encoded_raw, encoded_dropped
+        return outputs, state, scale, static_feat
 
 class DeepARRegTrainingNetwork(DeepARRegNetwork):
     """
