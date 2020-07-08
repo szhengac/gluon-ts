@@ -130,6 +130,7 @@ class DeepAREstimator(GluonEstimator):
         num_layers: int = 2,
         num_cells: int = 40,
         cell_type: str = "lstm",
+        zoneoutcell_type: str = "RNNZoneoutCell",
         dropout_rate: float = 0.1,
         use_feat_dynamic_real: bool = False,
         use_feat_static_cat: bool = False,
@@ -180,6 +181,7 @@ class DeepAREstimator(GluonEstimator):
         self.num_layers = num_layers
         self.num_cells = num_cells
         self.cell_type = cell_type
+        self.zoneoutcell_type = zoneoutcell_type
         self.dropout_rate = dropout_rate
         self.use_feat_dynamic_real = use_feat_dynamic_real
         self.use_feat_static_cat = use_feat_static_cat
@@ -319,6 +321,7 @@ class DeepAREstimator(GluonEstimator):
                 num_layers=self.num_layers,
                 num_cells=self.num_cells,
                 cell_type=self.cell_type,
+                zoneoutcell_type=self.zoneoutcell_type,
                 history_length=self.history_length,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
@@ -336,6 +339,7 @@ class DeepAREstimator(GluonEstimator):
             num_layers=self.num_layers,
             num_cells=self.num_cells,
             cell_type=self.cell_type,
+            zoneoutcell_type=self.zoneoutcell_type,
             history_length=self.history_length,
             context_length=self.context_length,
             prediction_length=self.prediction_length,
@@ -356,6 +360,7 @@ class DeepAREstimator(GluonEstimator):
             num_layers=self.num_layers,
             num_cells=self.num_cells,
             cell_type=self.cell_type,
+            zoneoutcell_type=self.zoneoutcell_type,
             history_length=self.history_length,
             context_length=self.context_length,
             prediction_length=self.prediction_length,
