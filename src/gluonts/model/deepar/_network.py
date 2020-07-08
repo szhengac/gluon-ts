@@ -741,7 +741,7 @@ class DeepARRegNetwork(DeepARNetwork):
         inputs = F.concat(input_lags, time_feat, repeated_static_feat, dim=-1)
 
         encoded = inputs
-        for rnn_layer, dropout_layer in zip(self.rnn_layers, self.dropout_layers):
+        for rnn_layer in self.rnn_layers:
             # unroll encoder
             encoded, state = self.rnn.unroll(
                 inputs=encoded,
