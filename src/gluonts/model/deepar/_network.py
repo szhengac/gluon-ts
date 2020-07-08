@@ -743,12 +743,12 @@ class DeepARRegNetwork(DeepARNetwork):
         encoded = inputs
         for rnn_layer in self.rnn_layers:
             # unroll encoder
-            encoded, state = self.rnn.unroll(
+            encoded, state = rnn_layer.unroll(
                 inputs=encoded,
                 length=subsequences_length,
                 layout="NTC",
                 merge_outputs=False,
-                begin_state=self.rnn.begin_state(
+                begin_state=rnn_layer.begin_state(
                     func=F.zeros,
                     dtype=self.dtype,
                     batch_size=inputs.shape[0]
