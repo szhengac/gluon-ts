@@ -22,6 +22,9 @@
 """Definition of various recurrent neural network cells."""
 __all__ = ['RNNZoneoutCell']
 
+# Third-party imports
+from mxnet.gluon.rnn import ModifierCell
+
 class RNNZoneoutCell(ModifierCell):
     """Applies Zoneout on base cell."""
     def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0.):
