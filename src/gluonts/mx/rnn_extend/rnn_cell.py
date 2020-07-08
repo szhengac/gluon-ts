@@ -23,7 +23,7 @@
 __all__ = ['RNNZoneoutCell']
 
 # Third-party imports
-from mxnet.gluon.rnn import ModifierCell
+from mxnet.gluon.rnn import ModifierCell, BidirectionalCell, SequentialRNNCell
 
 class RNNZoneoutCell(ModifierCell):
     """Applies Zoneout on base cell."""
