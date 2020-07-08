@@ -316,25 +316,6 @@ class DeepAREstimator(GluonEstimator):
         )
 
     def create_training_network(self) -> DeepARTrainingNetwork:
-        if self.alpha or self.beta:
-            return DeepARRegTrainingNetwork(
-                num_layers=self.num_layers,
-                num_cells=self.num_cells,
-                cell_type=self.cell_type,
-                zoneoutcell_type=self.zoneoutcell_type,
-                history_length=self.history_length,
-                context_length=self.context_length,
-                prediction_length=self.prediction_length,
-                distr_output=self.distr_output,
-                dropout_rate=self.dropout_rate,
-                cardinality=self.cardinality,
-                embedding_dimension=self.embedding_dimension,
-                lags_seq=self.lags_seq,
-                scaling=self.scaling,
-                dtype=self.dtype,
-                alpha=self.alpha, 
-                beta=self.beta
-            )
         return DeepARTrainingNetwork(
             num_layers=self.num_layers,
             num_cells=self.num_cells,
