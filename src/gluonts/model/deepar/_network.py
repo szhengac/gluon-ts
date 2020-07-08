@@ -751,8 +751,8 @@ class DeepARRegNetwork(DeepARNetwork):
                 begin_state=rnn_layer.begin_state(
                     func=F.zeros,
                     dtype=self.dtype,
-                    batch_size=inputs.shape[0]
-                    if isinstance(inputs, mx.nd.NDArray)
+                    batch_size=encoded.shape[0]
+                    if isinstance(encoded, mx.nd.NDArray)
                     else 0,
                 ),
             )
