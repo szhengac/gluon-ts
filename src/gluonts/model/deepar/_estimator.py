@@ -52,7 +52,7 @@ from gluonts.transform.feature import (
 )
 
 # Relative imports
-from ._network import DeepARPredictionNetwork, DeepARTrainingNetwork, DeepARRegTrainingNetwork
+from ._network import DeepARPredictionNetwork, DeepARTrainingNetwork
 
 
 class DeepAREstimator(GluonEstimator):
