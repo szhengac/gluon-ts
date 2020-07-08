@@ -65,13 +65,22 @@ class RNNZoneoutCell(ModifierCell):
         if prev_output is None:
             prev_output = F.zeros_like(next_output)
 
-        output = (F.where(mask(p_outputs, next_output), next_output, prev_output)
+        output_mask = mask(p_outputs, next_output)
+        output = (F.where(output_mask, next_output, prev_output)
                   if p_outputs != 0. else next_output)
-        states = ([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
-                   zip(next_states, states)] if p_states != 0. else next_states)
         
-        # only for RNN, the first element of states is output
-        states[0] = output
+        if p_states != 0.:
+            states = []
+            for i, (new_s, old_s) in enumerate(zip(next_states, states)):
+                if i == 0:
+                    # only for RNN, the first element of states is output
+                    # use the same mask as output, instead of simply copy output to the first element
+                    # in case that the base cell is ResidualCell
+                    states.append(F.where(output_mask, new_s, old_s))
+                else:
+                    states.append(mask(p_states, new_s), new_s, old_s))
+        else: 
+            states = next_states
 
         self._prev_output = output
 
