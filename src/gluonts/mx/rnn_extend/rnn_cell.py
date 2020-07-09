@@ -56,8 +56,8 @@ class RNNZoneoutCell(ModifierCell):
     def state_info(self, batch_size=0):
         cell_state_info = self.base_cell.state_info(batch_size)
         if self.preserve_output:
-            cell_state_info += [{'shape': (batch_size, self._hidden_size), '__layout__': 'NC'}, 
-                                {'shape': (batch_size, self._hidden_size), '__layout__': 'NC'}]
+            cell_state_info += [{'shape': (-1), '__layout__': 'NC'}, 
+                                {'shape': (-1), '__layout__': 'NC'}]
         return cell_state_info
 
     def begin_state(self, func=symbol.zeros, **kwargs):
