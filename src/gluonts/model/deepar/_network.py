@@ -113,11 +113,15 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             for k in range(num_layers):
                 cell = RnnCell(hidden_size=num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
+                # debug
+                print(cell)
                 cell = (
                     ZoneoutCell(cell, zoneout_states=dropout_rate)
                     if dropout_rate > 0.0
                     else cell
                 )
+                # debug
+                pring(cell)
                 self.rnn.add(cell)
             self.rnn.cast(dtype=dtype)
             self.embedder = FeatureEmbedder(
