@@ -27,7 +27,7 @@ from mxnet.gluon.rnn import ModifierCell, BidirectionalCell, SequentialRNNCell
 
 class RNNZoneoutCell(ModifierCell):
     """Applies Zoneout on base cell."""
-    def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0.):
+    def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0., preserve_output=False):
         assert not isinstance(base_cell, BidirectionalCell), \
             "BidirectionalCell doesn't support zoneout since it doesn't support step. " \
             "Please add RNNZoneoutCell to the cells underneath instead."
@@ -38,6 +38,7 @@ class RNNZoneoutCell(ModifierCell):
         self.zoneout_outputs = zoneout_outputs
         self.zoneout_states = zoneout_states
         self._prev_output = None
+        self.preserve_output = preserve_output
 
     def __repr__(self):
         s = '{name}(p_out={zoneout_outputs}, p_state={zoneout_states}, {base_cell})'
