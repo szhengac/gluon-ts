@@ -23,6 +23,7 @@
 __all__ = ['RNNZoneoutCell']
 
 # Third-party imports
+from mxnet import symbol, ndarray
 from mxnet.gluon.rnn import ModifierCell, BidirectionalCell, SequentialRNNCell
 
 class RNNZoneoutCell(ModifierCell):
