@@ -121,7 +121,7 @@ class DeepARNetwork(mx.gluon.HybridBlock):
                     else cell
                 )
                 # debug
-                pring(cell)
+                print(cell)
                 self.rnn.add(cell)
             self.rnn.cast(dtype=dtype)
             self.embedder = FeatureEmbedder(
