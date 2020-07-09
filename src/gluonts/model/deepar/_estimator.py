@@ -331,6 +331,8 @@ class DeepAREstimator(GluonEstimator):
             lags_seq=self.lags_seq,
             scaling=self.scaling,
             dtype=self.dtype,
+            alpha=self.alpha,
+            beta=self.beta,
         )
 
     def create_predictor(

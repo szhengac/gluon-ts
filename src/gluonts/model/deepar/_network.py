@@ -57,6 +57,8 @@ class DeepARNetwork(mx.gluon.HybridBlock):
         lags_seq: List[int],
         scaling: bool = True,
         dtype: DType = np.float32,
+        alpha: float = 0, 
+        beta: float = 0,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -90,9 +92,16 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             self.cell_type
         ]
 
+        if alpha != 0. or beta != 0.:
+            assert self.zoneoutcell_type == "RNNZoneoutCell", \
+                "if using regularization, zoneoutcell_type must be RNNZoneoutCell"
+
         ZoneoutCell = {"ZoneoutCell": mx.gluon.rnn.ZoneoutCell, "RNNZoneoutCell": RNNZoneoutCell}[
             self.zoneoutcell_type
         ]
+
+        self.alpha = alpha
+        self.beta = beta
 
         # debug
         if ZoneoutCell is RNNZoneoutCell:
@@ -113,15 +122,18 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             for k in range(num_layers):
                 cell = RnnCell(hidden_size=num_cells)
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
-                # debug
-                print(cell)
-                cell = (
-                    ZoneoutCell(cell, zoneout_states=dropout_rate)
-                    if dropout_rate > 0.0
-                    else cell
-                )
-                # debug
-                print(cell)
+                if alpha != 0. or beta != 0.:
+                    cell = (
+                        ZoneoutCell(cell, zoneout_states=dropout_rate, preserve_output=True)
+                        if dropout_rate > 0.0
+                        else cell
+                    )
+                else:
+                    cell = (
+                        ZoneoutCell(cell, zoneout_states=dropout_rate)
+                        if dropout_rate > 0.0
+                        else cell
+                    )
                 self.rnn.add(cell)
             self.rnn.cast(dtype=dtype)
             self.embedder = FeatureEmbedder(

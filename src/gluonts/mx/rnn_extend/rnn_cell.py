@@ -52,6 +52,24 @@ class RNNZoneoutCell(ModifierCell):
         super(RNNZoneoutCell, self).reset()
         self._prev_output = None
 
+    def state_info(self, batch_size=0):
+        cell_state_info = self.base_cell.state_info(batch_size)
+        if self.preserve_output:
+            cell_state_info += [{'shape': (batch_size, self._hidden_size), '__layout__': 'NC'}, 
+                                {'shape': (batch_size, self._hidden_size), '__layout__': 'NC'}]
+        return cell_state_info
+
+    def begin_state(self, func=symbol.zeros, **kwargs):
+        assert not self._modified, \
+            "After applying modifier cells (e.g. DropoutCell) the base " \
+            "cell cannot be called directly. Call the modifier cell instead."
+        self.base_cell._modified = False
+        begin = self.base_cell.begin_state(func=func, **kwargs)
+        if self.preserve_output:
+            begin += [[], []]
+        self.base_cell._modified = True
+        return begin
+
     def hybrid_forward(self, F, inputs, states):
         cell, p_outputs, p_states = self.base_cell, self.zoneout_outputs, self.zoneout_states
         next_output, next_states = cell(inputs, states)
@@ -70,8 +88,18 @@ class RNNZoneoutCell(ModifierCell):
         # in case that the base cell is ResidualCell
         new_states = [F.where(output_mask, next_states[0], states[0])
                           if p_outputs != 0. else next_states[0]]
-        new_states += ([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
-                        zip(next_states[1:], states[1:])] if p_states != 0. else next_states[1:])
+        if self.preserve_output:
+            # the output is stored in the last 2 elements of states
+            new_states += ([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
+                            zip(next_states[1:], states[1:-2])] if p_states != 0. else next_states[1:])
+            # store raw output
+            states[-2].append(next_output)
+            # store dropped output
+            states[-1].append(output)
+            new_states += states[-2:]
+        else:
+            new_states += ([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
+                            zip(next_states[1:], states[1:])] if p_states != 0. else next_states[1:])
 
         self._prev_output = output
 
