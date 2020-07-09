@@ -67,6 +67,8 @@ class RNNZoneoutCell(ModifierCell):
         begin = self.base_cell.begin_state(func=func, **kwargs)
         if self.preserve_output:
             begin += [[], []]
+            # debug
+            print("preserver output")
         self.base_cell._modified = True
         return begin
 
