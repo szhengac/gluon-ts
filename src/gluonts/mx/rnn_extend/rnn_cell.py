@@ -160,6 +160,9 @@ class AccumulateStatesCell(ModifierCell):
             states.extend(accumulated_states)
             # debug
             print('states accumulated:', accumulated_states)
+        
+        # debug
+        print('all_states:', all_states)
 
         outputs, _, _, _ = _format_sequence(length, outputs, layout, merge_outputs)
 
