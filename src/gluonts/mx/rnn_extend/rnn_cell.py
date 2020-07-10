@@ -158,6 +158,8 @@ class AccumulateStatesCell(ModifierCell):
             #                       for ele_list in zip(*accumulated_states_list)]
             accumulated_states = [list(ele_list) for ele_list in zip(*accumulated_states_list)]
             states.extend(accumulated_states)
+            # debug
+            print('states accumulated:', accumulated_states)
 
         outputs, _, _, _ = _format_sequence(length, outputs, layout, merge_outputs)
 
