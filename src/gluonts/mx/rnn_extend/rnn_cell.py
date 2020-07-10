@@ -115,6 +115,12 @@ class AccumulateStatesCell(ModifierCell):
     def __init__(self, base_cell, index_list):
         super(AccumulateStatesCell, self).__init__(base_cell)
         self.index_list = index_list
+
+    def hybrid_forward(self, F, inputs, states):
+        # identity mapping
+        next_output, next_states = self.base_cell(inputs, states)
+
+        return next_output, next_states
     
     def unroll(self, length, inputs, begin_state=None, layout='NTC', merge_outputs=None,
                valid_length=None):
