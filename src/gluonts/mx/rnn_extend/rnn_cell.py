@@ -20,7 +20,7 @@
 # pylint: disable=too-many-branches, too-many-arguments, no-self-use
 # pylint: disable=too-many-lines, arguments-differ
 """Definition of various recurrent neural network cells."""
-__all__ = ['RNNZoneoutCell']
+__all__ = ['RNNZoneoutCell', 'AccumulateStatesCell']
 
 # Third-party imports
 from mxnet import symbol, ndarray
