@@ -29,7 +29,7 @@ from gluonts.mx.block.scaler import MeanScaler, NOPScaler
 from gluonts.mx.distribution import Distribution, DistributionOutput
 from gluonts.mx.distribution.distribution import getF
 from gluonts.support.util import weighted_average
-from gluonts.mx.rnn_extend import RNNZoneoutCell
+from gluonts.mx.rnn_extend import RNNZoneoutCell, AccumulateStatesCell
 
 
 def prod(xs):
@@ -124,9 +124,14 @@ class DeepARNetwork(mx.gluon.HybridBlock):
                 cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
                 if alpha != 0. or beta != 0.:
                     cell = (
-                        ZoneoutCell(cell, zoneout_states=dropout_rate, preserve_output=True)
+                        ZoneoutCell(cell, zoneout_states=dropout_rate, preserve_raw_output=True)
                         if dropout_rate > 0.0
                         else cell
+                    )
+                    cell = (
+                        AccumulateStatesCell(cell, index_list = [0, -1])
+                        if dropout_rate > 0.0
+                        else AccumulateStatesCell(cell, index_list = [0])
                     )
                 else:
                     cell = (
