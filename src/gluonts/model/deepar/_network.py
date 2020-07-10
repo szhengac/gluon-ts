@@ -471,11 +471,14 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         if self.alpha or self.beta:
             # get accumulated outputs
-            outputs_raw = states[-1]
-            if self.dropout_rate:
-                outputs_dropped = states[-2]
-            else:
-                outputs_dropped = states[-1]
+            outputs_raw = []
+            outputs_dropped = []
+            for state in states:
+                outputs_raw.append(states[-1])
+                if self.dropout_rate:
+                    outputs_dropped.append(states[-2])
+                else:
+                    outputs_dropped.append(states[-1])
 
         # it seems that the trainer only uses the first return value for backward
         # so we only add regularization to weighted_loss
