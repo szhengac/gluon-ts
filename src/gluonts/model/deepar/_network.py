@@ -472,7 +472,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # debug
         print(states)
         print(type(states))
-        print(len(states))
+        # print(len(states))
 
         if self.alpha or self.beta:
             # get accumulated outputs
