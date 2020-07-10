@@ -151,8 +151,9 @@ class AccumulateStatesCell(ModifierCell):
             outputs = _mask_sequence_variable_length(F, outputs, length, valid_length, axis, True)
 
             # accumulate states
-            accumulated_states = [_format_sequence(length, ele_list, layout, merge_outputs)
-                                  for ele_list in zip(*accumulated_states_list)]
+            # accumulated_states = [_format_sequence(length, ele_list, layout, merge_outputs)
+            #                       for ele_list in zip(*accumulated_states_list)]
+            accumulated_states = [list(ele_list) for ele_list in zip(*accumulated_states_list)]
             states.extend(accumulated_states)
 
         outputs, _, _, _ = _format_sequence(length, outputs, layout, merge_outputs)
