@@ -25,10 +25,12 @@ __all__ = ['RNNZoneoutCell']
 # Third-party imports
 from mxnet import symbol, ndarray
 from mxnet.gluon.rnn import ModifierCell, BidirectionalCell, SequentialRNNCell
+from mxnet.gluon.rnn.rnn_cell import _format_sequence, _mask_sequence_variable_length
+from mxnet.gluon import tensor_types
 
 class RNNZoneoutCell(ModifierCell):
     """Applies Zoneout on base cell."""
-    def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0., preserve_output=False):
+    def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0., preserve_raw_output=False):
         assert not isinstance(base_cell, BidirectionalCell), \
             "BidirectionalCell doesn't support zoneout since it doesn't support step. " \
             "Please add RNNZoneoutCell to the cells underneath instead."
@@ -39,7 +41,7 @@ class RNNZoneoutCell(ModifierCell):
         self.zoneout_outputs = zoneout_outputs
         self.zoneout_states = zoneout_states
         self._prev_output = None
-        self.preserve_output = preserve_output
+        self.preserve_raw_output = preserve_raw_output
 
     def __repr__(self):
         s = '{name}(p_out={zoneout_outputs}, p_state={zoneout_states}, {base_cell})'
@@ -47,7 +49,7 @@ class RNNZoneoutCell(ModifierCell):
                         **self.__dict__)
 
     def _alias(self):
-        return 'zoneout'
+        return 'rnnzoneout'
 
     def reset(self):
         super(RNNZoneoutCell, self).reset()
@@ -55,21 +57,20 @@ class RNNZoneoutCell(ModifierCell):
 
     def state_info(self, batch_size=0):
         cell_state_info = self.base_cell.state_info(batch_size)
-        if self.preserve_output:
-            cell_state_info += [{'shape': (-1), '__layout__': 'NC'}, 
-                                {'shape': (-1), '__layout__': 'NC'}]
+        if self.preserve_raw_output:
+            # placeholder for the raw output
+            cell_state_info.append(cell_state_info[0])
         return cell_state_info
 
     def begin_state(self, func=symbol.zeros, **kwargs):
         assert not self._modified, \
-            "After applying modifier cells (e.g. DropoutCell) the base " \
+            "After applying modifier cells the base " \
             "cell cannot be called directly. Call the modifier cell instead."
         self.base_cell._modified = False
         begin = self.base_cell.begin_state(func=func, **kwargs)
-        if self.preserve_output:
-            begin += [[], []]
-            # debug
-            print("preserver output")
+        if self.preserve_raw_output:
+            # placeholder for the raw output
+            begin.append(None)
         self.base_cell._modified = True
         return begin
 
@@ -91,15 +92,12 @@ class RNNZoneoutCell(ModifierCell):
         # in case that the base cell is ResidualCell
         new_states = [F.where(output_mask, next_states[0], states[0])
                           if p_outputs != 0. else next_states[0]]
-        if self.preserve_output:
-            # the output is stored in the last 2 elements of states
-            new_states += ([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
-                            zip(next_states[1:], states[1:-2])] if p_states != 0. else next_states[1:])
+        if self.preserve_raw_output:
+            # the output is stored in the last 2 elements of states, thus skip them
+            new_states.extend([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
+                               zip(next_states[1:], states[1:-1])] if p_states != 0. else next_states[1:])
             # store raw output
-            states[-2].append(next_output)
-            # store dropped output
-            states[-1].append(output)
-            new_states += states[-2:]
+            new_states.append(next_states[0])
         else:
             new_states += ([F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
                             zip(next_states[1:], states[1:])] if p_states != 0. else next_states[1:])
@@ -107,3 +105,50 @@ class RNNZoneoutCell(ModifierCell):
         self._prev_output = output
 
         return output, new_states
+
+
+class AccumulateStatesCell(ModifierCell):
+    """
+    Accumulate part of the states in base cell.
+    To make it work, AccumulateStatesCell must be the last ModifierCell when stacking
+    """
+    def __init__(self, base_cell, index_list):
+        super(AccumulateStatesCell, self).__init__(base_cell)
+        self.index_list = index_list
+    
+    def unroll(self, length, inputs, begin_state=None, layout='NTC', merge_outputs=None,
+               valid_length=None):
+        self.reset()
+
+        inputs, axis, F, batch_size = _format_sequence(length, inputs, layout, False)
+        begin_state = _get_begin_state(self, F, begin_state, inputs, batch_size)
+
+        states = begin_state
+        outputs = []
+        all_states = []
+        accumulated_states_list = []
+        for i in range(length):
+            output, states = self(inputs[i], states)
+            outputs.append(output)
+            if valid_length is not None:
+                all_states.append(states)
+                selected_states = []
+                for index in self.index_list:
+                    selected_states.append(states[index])
+                accumulated_states_list.append(selected_states)
+        if valid_length is not None:
+            states = [F.SequenceLast(F.stack(*ele_list, axis=0),
+                                     sequence_length=valid_length,
+                                     use_sequence_length=True,
+                                     axis=0)
+                      for ele_list in zip(*all_states)]
+            outputs = _mask_sequence_variable_length(F, outputs, length, valid_length, axis, True)
+
+            # accumulate states
+            accumulated_states = [_format_sequence(length, ele_list, layout, merge_outputs)
+                                  for ele_list in zip(*accumulated_states_list)]
+            states.extend(accumulated_states)
+
+        outputs, _, _, _ = _format_sequence(length, outputs, layout, merge_outputs)
+
+        return outputs, states
