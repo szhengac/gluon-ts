@@ -326,6 +326,15 @@ class DeepARNetwork(mx.gluon.HybridBlock):
 
 
 class DeepARTrainingNetwork(DeepARNetwork):
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        if self.alpha:
+            self.ar_loss = nlp.loss.ActivationRegularizationLoss(alpha)
+        if self.beta:
+            self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(beta)
+
     def distribution(
         self,
         feat_static_cat: Tensor,
@@ -359,7 +368,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # i.e. by providing future data as well
         F = getF(feat_static_cat)
 
-        rnn_outputs, _, scale, _ = self.unroll_encoder(
+        rnn_outputs, states, scale, _ = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
@@ -372,7 +381,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         distr_args = self.proj_distr_args(rnn_outputs)
 
-        return self.distr_output.distribution(distr_args, scale=scale)
+        return self.distr_output.distribution(distr_args, scale=scale), states
 
     # noinspection PyMethodOverriding,PyPep8Naming
     def hybrid_forward(
@@ -408,7 +417,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         """
 
-        distr = self.distribution(
+        distr, states = self.distribution(
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
             past_time_feat=past_time_feat,
@@ -459,6 +468,22 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         # need to mask possible nans and -inf
         loss = F.where(condition=loss_weights, x=loss, y=F.zeros_like(loss))
+
+        if self.alpha or self.beta:
+            # get accumulated outputs
+            outputs_raw = states[-1]
+            if self.dropout_rate:
+                outputs_dropped = states[-2]
+            else:
+                outputs_dropped = states[-1]
+
+        # it seems that the trainer only uses the first return value for backward
+        # so we only add regularization to weighted_loss
+
+        if self.alpha:
+            weighted_loss += self.ar_loss(*outputs_dropped)
+        if self.beta:
+            weighted_loss += self.tar_loss(*outputs_raw)
 
         return weighted_loss, loss
 
