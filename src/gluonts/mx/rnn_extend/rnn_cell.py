@@ -126,9 +126,6 @@ class AccumulateStatesCell(ModifierCell):
                valid_length=None):
         self.reset()
 
-        # debug
-        print('accumulate states:', self.index_list)
-
         inputs, axis, F, batch_size = _format_sequence(length, inputs, layout, False)
         begin_state = _get_begin_state(self, F, begin_state, inputs, batch_size)
 
@@ -158,8 +155,6 @@ class AccumulateStatesCell(ModifierCell):
             #                       for ele_list in zip(*accumulated_states_list)]
         accumulated_states = [list(ele_list) for ele_list in zip(*accumulated_states_list)]
         states.extend(accumulated_states)
-        # debug
-        print('states accumulated:', accumulated_states)
 
         outputs, _, _, _ = _format_sequence(length, outputs, layout, merge_outputs)
 
