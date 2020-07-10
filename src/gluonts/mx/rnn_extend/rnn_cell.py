@@ -141,10 +141,10 @@ class AccumulateStatesCell(ModifierCell):
             outputs.append(output)
             if valid_length is not None:
                 all_states.append(states)
-                selected_states = []
-                for index in self.index_list:
-                    selected_states.append(states[index])
-                accumulated_states_list.append(selected_states)
+            selected_states = []
+            for index in self.index_list:
+                selected_states.append(states[index])
+            accumulated_states_list.append(selected_states)
         if valid_length is not None:
             states = [F.SequenceLast(F.stack(*ele_list, axis=0),
                                      sequence_length=valid_length,
@@ -156,13 +156,10 @@ class AccumulateStatesCell(ModifierCell):
             # accumulate states
             # accumulated_states = [_format_sequence(length, ele_list, layout, merge_outputs)
             #                       for ele_list in zip(*accumulated_states_list)]
-            accumulated_states = [list(ele_list) for ele_list in zip(*accumulated_states_list)]
-            states.extend(accumulated_states)
-            # debug
-            print('states accumulated:', accumulated_states)
-        
+        accumulated_states = [list(ele_list) for ele_list in zip(*accumulated_states_list)]
+        states.extend(accumulated_states)
         # debug
-        print('all_states:', all_states)
+        print('states accumulated:', accumulated_states)
 
         outputs, _, _, _ = _format_sequence(length, outputs, layout, merge_outputs)
 
