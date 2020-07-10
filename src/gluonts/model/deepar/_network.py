@@ -331,9 +331,9 @@ class DeepARTrainingNetwork(DeepARNetwork):
         super().__init__(**kwargs)
 
         if self.alpha:
-            self.ar_loss = nlp.loss.ActivationRegularizationLoss(alpha)
+            self.ar_loss = nlp.loss.ActivationRegularizationLoss(self.alpha)
         if self.beta:
-            self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(beta)
+            self.tar_loss = nlp.loss.TemporalActivationRegularizationLoss(self.beta)
 
     def distribution(
         self,
