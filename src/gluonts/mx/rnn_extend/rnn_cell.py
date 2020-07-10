@@ -25,7 +25,7 @@ __all__ = ['RNNZoneoutCell', 'AccumulateStatesCell']
 # Third-party imports
 from mxnet import symbol, ndarray
 from mxnet.gluon.rnn import ModifierCell, BidirectionalCell, SequentialRNNCell
-from mxnet.gluon.rnn.rnn_cell import _format_sequence, _mask_sequence_variable_length
+from mxnet.gluon.rnn.rnn_cell import _format_sequence, _mask_sequence_variable_length, _get_begin_state
 from mxnet.gluon import tensor_types
 
 class RNNZoneoutCell(ModifierCell):
