@@ -354,6 +354,8 @@ class DeepAREstimator(GluonEstimator):
             lags_seq=self.lags_seq,
             scaling=self.scaling,
             dtype=self.dtype,
+            alpha=self.alpha,
+            beta=self.beta,
         )
 
         copy_parameters(trained_network, prediction_network)
