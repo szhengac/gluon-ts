@@ -15,8 +15,11 @@
 from .rnn_cell import *
 
 __all__ = [
+    "ZoneoutCell", 
     "RNNZoneoutCell",
     "AccumulateStatesCell",
+    "ActivationRegularizationLoss",
+    "TemporalActivationRegularizationLoss",
 ]
 
 for item in __all__:
