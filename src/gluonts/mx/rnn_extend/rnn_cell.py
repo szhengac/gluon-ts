@@ -20,7 +20,7 @@
 # pylint: disable=too-many-branches, too-many-arguments, no-self-use
 # pylint: disable=too-many-lines, arguments-differ
 """Definition of various recurrent neural network cells."""
-__all__ = ['ZoneoutCell', 'RNNZoneoutCell', 'AccumulateStatesCell', "ActivationRegularizationLoss", "TemporalActivationRegularizationLoss"]
+__all__ = ['ZoneoutCell', 'VaritionalZoneoutCell', 'RNNZoneoutCell', 'AccumulateStatesCell', "ActivationRegularizationLoss", "TemporalActivationRegularizationLoss"]
 
 # Third-party imports
 from mxnet import symbol, ndarray
@@ -96,6 +96,97 @@ class ZoneoutCell(ModifierCell):
         else:
             new_states = [F.where(mask(p_states, new_s), new_s, old_s) for new_s, old_s in
                                   zip(next_states, states)] if p_states != 0. else next_states
+
+        self._prev_output = output
+
+        return output, new_states
+
+class VaritionalZoneoutCell(ModifierCell):
+    """Applies Zoneout on base cell."""
+    def __init__(self, base_cell, zoneout_outputs=0., zoneout_states=0., preserve_raw_output=False):
+        assert not isinstance(base_cell, BidirectionalCell), \
+            "BidirectionalCell doesn't support zoneout since it doesn't support step. " \
+            "Please add VaritionalZoneoutCell to the cells underneath instead."
+        assert not isinstance(base_cell, SequentialRNNCell) or not base_cell._bidirectional, \
+            "Bidirectional SequentialRNNCell doesn't support zoneout. " \
+            "Please add VaritionalZoneoutCell to the cells underneath instead."
+        super(VaritionalZoneoutCell, self).__init__(base_cell)
+        self.zoneout_outputs = zoneout_outputs
+        self.zoneout_states = zoneout_states
+        self._prev_output = None
+        self.preserve_raw_output = preserve_raw_output
+
+        self.zoneout_states_mask = None
+        self.zoneout_outputs_mask = None
+
+    def __repr__(self):
+        s = '{name}(p_out={zoneout_outputs}, p_state={zoneout_states}, {base_cell})'
+        return s.format(name=self.__class__.__name__,
+                        **self.__dict__)
+
+    def _alias(self):
+        return 'varitionalzoneout'
+
+    def reset(self):
+        super(VaritionalZoneoutCell, self).reset()
+        self._prev_output = None
+
+        self.zoneout_states_mask = None
+        self.zoneout_outputs_mask = None
+
+    def state_info(self, batch_size=0):
+        cell_state_info = self.base_cell.state_info(batch_size)
+        if self.preserve_raw_output:
+            # placeholder for the raw output
+            cell_state_info.append(cell_state_info[0])
+        return cell_state_info
+
+    def begin_state(self, func=symbol.zeros, **kwargs):
+        assert not self._modified, \
+            "After applying modifier cells the base " \
+            "cell cannot be called directly. Call the modifier cell instead."
+        self.base_cell._modified = False
+        begin = self.base_cell.begin_state(func=func, **kwargs)
+        if self.preserve_raw_output:
+            # placeholder for the raw output
+            begin.append(None)
+        self.base_cell._modified = True
+        return begin
+
+    def _initialize_states_masks(self, F, states):
+        if self.zoneout_states and self.zoneout_states_mask is None:
+            self.zoneout_states_mask = [F.Dropout(F.ones_like(state),
+                                              p=self.zoneout_states) for state in states]
+
+    def _initialize_outputs_mask(self, F, output):
+        if self.zoneout_outputs and self.zoneout_outputs_mask is None:
+            self.zoneout_outputs_mask = F.Dropout(F.ones_like(output),
+                                               p=self.zoneout_outputs)
+
+    def hybrid_forward(self, F, inputs, states):
+        cell, p_outputs, p_states = self.base_cell, self.zoneout_outputs, self.zoneout_states
+        next_output, next_states = cell(inputs, states)
+
+        prev_output = self._prev_output
+        if prev_output is None:
+            prev_output = F.zeros_like(next_output)
+
+        self._initialize_outputs_mask(F, next_output)
+
+        output = (F.where(self.zoneout_outputs_mask, next_output, prev_output)
+                  if p_outputs != 0. else next_output)
+        
+        self._initialize_states_masks(F, next_states)
+        
+        if self.preserve_raw_output:
+            # the output is stored in the last element of states, thus skip it
+            new_states = [F.where(state_mask, new_s, old_s) for state_mask, new_s, old_s in
+                                  zip(self.zoneout_states_mask, next_states, states[:-1])] if p_states != 0. else next_states
+            # store raw output
+            new_states.append(next_states[0])
+        else:
+            new_states = [F.where(state_mask, new_s, old_s) for state_mask, new_s, old_s in
+                                  zip(self.zoneout_states_mask, next_states, states)] if p_states != 0. else next_states
 
         self._prev_output = output
 

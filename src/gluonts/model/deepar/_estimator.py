@@ -131,7 +131,10 @@ class DeepAREstimator(GluonEstimator):
         num_cells: int = 40,
         cell_type: str = "lstm",
         zoneoutcell_type: str = "RNNZoneoutCell",
-        dropout_rate: float = 0.1,
+        residualcell_first: bool = True,
+        inputs_dropout_rate: float = 0.0,
+        outputs_dropout_rate: float = 0.0,
+        states_dropout_rate: float = 0.1,
         use_feat_dynamic_real: bool = False,
         use_feat_static_cat: bool = False,
         use_feat_static_real: bool = False,
@@ -157,7 +160,9 @@ class DeepAREstimator(GluonEstimator):
         ), "The value of `context_length` should be > 0"
         assert num_layers > 0, "The value of `num_layers` should be > 0"
         assert num_cells > 0, "The value of `num_cells` should be > 0"
-        assert dropout_rate >= 0, "The value of `dropout_rate` should be >= 0"
+        assert inputs_dropout_rate >= 0, "The value of `inputs_dropout_rate` should be >= 0"
+        assert outputs_dropout_rate >= 0, "The value of `outputs_dropout_rate` should be >= 0"
+        assert states_dropout_rate >= 0, "The value of `states_dropout_rate` should be >= 0"
         assert (cardinality and use_feat_static_cat) or (
             not (cardinality or use_feat_static_cat)
         ), "You should set `cardinality` if and only if `use_feat_static_cat=True`"
@@ -182,7 +187,10 @@ class DeepAREstimator(GluonEstimator):
         self.num_cells = num_cells
         self.cell_type = cell_type
         self.zoneoutcell_type = zoneoutcell_type
-        self.dropout_rate = dropout_rate
+        self.residualcell_first = residualcell_first
+        self.inputs_dropout_rate = inputs_dropout_rate
+        self.outputs_dropout_rate = outputs_dropout_rate
+        self.states_dropout_rate = states_dropout_rate
         self.use_feat_dynamic_real = use_feat_dynamic_real
         self.use_feat_static_cat = use_feat_static_cat
         self.use_feat_static_real = use_feat_static_real
@@ -321,11 +329,14 @@ class DeepAREstimator(GluonEstimator):
             num_cells=self.num_cells,
             cell_type=self.cell_type,
             zoneoutcell_type=self.zoneoutcell_type,
+            residualcell_first=self.residualcell_first,
             history_length=self.history_length,
             context_length=self.context_length,
             prediction_length=self.prediction_length,
             distr_output=self.distr_output,
-            dropout_rate=self.dropout_rate,
+            inputs_dropout_rate=self.inputs_dropout_rate,
+            outputs_dropout_rate=self.outputs_dropout_rate,
+            states_dropout_rate=self.states_dropout_rate,
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             lags_seq=self.lags_seq,
@@ -344,11 +355,14 @@ class DeepAREstimator(GluonEstimator):
             num_cells=self.num_cells,
             cell_type=self.cell_type,
             zoneoutcell_type=self.zoneoutcell_type,
+            residualcell_first=self.residualcell_first,
             history_length=self.history_length,
             context_length=self.context_length,
             prediction_length=self.prediction_length,
             distr_output=self.distr_output,
-            dropout_rate=self.dropout_rate,
+            inputs_dropout_rate=self.inputs_dropout_rate,
+            outputs_dropout_rate=self.outputs_dropout_rate,
+            states_dropout_rate=self.states_dropout_rate,
             cardinality=self.cardinality,
             embedding_dimension=self.embedding_dimension,
             lags_seq=self.lags_seq,
