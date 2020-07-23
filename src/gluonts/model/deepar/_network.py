@@ -15,6 +15,7 @@ from typing import List, Optional, Tuple
 
 # Third-party imports
 import mxnet as mx
+from mxnet.gluon.contrib.rnn import VariationalDropoutCell
 
 # Standard library imports
 import numpy as np
@@ -28,6 +29,7 @@ from gluonts.mx.block.scaler import MeanScaler, NOPScaler
 from gluonts.mx.distribution import Distribution, DistributionOutput
 from gluonts.mx.distribution.distribution import getF
 from gluonts.support.util import weighted_average
+from gluonts.mx.rnn_extend import ZoneoutCell, VaritionalZoneoutCell, RNNZoneoutCell, AccumulateStatesCell, ActivationRegularizationLoss, TemporalActivationRegularizationLoss
 
 
 def prod(xs):
@@ -48,22 +50,31 @@ class DeepARNetwork(mx.gluon.HybridBlock):
         context_length: int,
         prediction_length: int,
         distr_output: DistributionOutput,
-        dropout_rate: float,
+        inputs_dropout_rate: float,
+        outputs_dropout_rate: float,
+        states_dropout_rate: float,
         cardinality: List[int],
         embedding_dimension: List[int],
         lags_seq: List[int],
         scaling: bool = True,
         dtype: DType = np.float32,
+        zoneoutcell_type: str = 'ZoneoutCell',
+        residualcell_first: bool = True,
+        alpha: float = 0, 
+        beta: float = 0,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.num_layers = num_layers
         self.num_cells = num_cells
         self.cell_type = cell_type
+        self.zoneoutcell_type = zoneoutcell_type
         self.history_length = history_length
         self.context_length = context_length
         self.prediction_length = prediction_length
-        self.dropout_rate = dropout_rate
+        self.inputs_dropout_rate = inputs_dropout_rate
+        self.outputs_dropout_rate = outputs_dropout_rate
+        self.states_dropout_rate = states_dropout_rate
         self.cardinality = cardinality
         self.embedding_dimension = embedding_dimension
         self.num_cat = len(cardinality)
@@ -86,6 +97,15 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             self.cell_type
         ]
 
+        Zoneout = {"ZoneoutCell": ZoneoutCell, "RNNZoneoutCell": RNNZoneoutCell, "VariationalDropoutCell": VariationalDropoutCell, "VaritionalZoneoutCell": VaritionalZoneoutCell}[
+            self.zoneoutcell_type
+        ]
+
+        self.residualcell_first = residualcell_first
+
+        self.alpha = alpha
+        self.beta = beta
+
         self.target_shape = distr_output.event_shape
 
         # TODO: is the following restriction needed?
@@ -98,12 +118,35 @@ class DeepARNetwork(mx.gluon.HybridBlock):
             self.rnn = mx.gluon.rnn.HybridSequentialRNNCell()
             for k in range(num_layers):
                 cell = RnnCell(hidden_size=num_cells)
-                cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
-                cell = (
-                    mx.gluon.rnn.ZoneoutCell(cell, zoneout_states=dropout_rate)
-                    if dropout_rate > 0.0
-                    else cell
-                )
+                if residualcell_first:
+                    cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
+                # if alpha != 0. or beta != 0.:
+                #     cell = (
+                #         Zoneout(cell, zoneout_states=dropout_rate, preserve_raw_output=True)
+                #         if dropout_rate > 0.0
+                #         else cell
+                #     )
+                #     cell = AccumulateStatesCell(cell, index_list = [0, -1] if dropout_rate > 0.0 else [0])
+                # else:
+                #     cell = (
+                #         Zoneout(cell, zoneout_states=dropout_rate)
+                #         if dropout_rate > 0.0
+                #         else cell
+                #     )
+                if "Zoneout" in self.zoneoutcell_type:
+                    cell = (
+                        Zoneout(cell, zoneout_outputs=outputs_dropout_rate, zoneout_states=states_dropout_rate)
+                        if outputs_dropout_rate > 0.0 or states_dropout_rate > 0.0
+                        else cell
+                    )
+                else:
+                    cell = (
+                        Zoneout(cell, drop_inputs=inputs_dropout_rate, drop_states=states_dropout_rate)
+                        if inputs_dropout_rate > 0.0 or states_dropout_rate > 0.0
+                        else cell
+                    )
+                if not residualcell_first:
+                    cell = mx.gluon.rnn.ResidualCell(cell) if k > 0 else cell
                 self.rnn.add(cell)
             self.rnn.cast(dtype=dtype)
             self.embedder = FeatureEmbedder(
@@ -291,6 +334,19 @@ class DeepARNetwork(mx.gluon.HybridBlock):
 
 
 class DeepARTrainingNetwork(DeepARNetwork):
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        if self.alpha:
+            self.ar_loss = ActivationRegularizationLoss(self.alpha, time_axis=1, batch_axis=0)
+        if self.beta:
+            self.tar_loss = TemporalActivationRegularizationLoss(self.beta, time_axis=1, batch_axis=0)
+        
+        if self.alpha or self.beta:
+            self.rnn_outputs = None
+            self.states = None
+
     def distribution(
         self,
         feat_static_cat: Tensor,
@@ -324,7 +380,7 @@ class DeepARTrainingNetwork(DeepARNetwork):
         # i.e. by providing future data as well
         F = getF(feat_static_cat)
 
-        rnn_outputs, _, scale, _ = self.unroll_encoder(
+        rnn_outputs, states, scale, _ = self.unroll_encoder(
             F=F,
             feat_static_cat=feat_static_cat,
             feat_static_real=feat_static_real,
@@ -334,6 +390,11 @@ class DeepARTrainingNetwork(DeepARNetwork):
             future_time_feat=future_time_feat,
             future_target=future_target,
         )
+
+        # store output of rnn layers
+        # no dropout for outputs, so can be directly used for activation regularization
+        self.rnn_outputs = rnn_outputs
+        # self.states = states
 
         distr_args = self.proj_distr_args(rnn_outputs)
 
@@ -424,6 +485,36 @@ class DeepARTrainingNetwork(DeepARNetwork):
 
         # need to mask possible nans and -inf
         loss = F.where(condition=loss_weights, x=loss, y=F.zeros_like(loss))
+
+        # if self.alpha or self.beta:
+        #     # get accumulated outputs
+        #     outputs_raw = []
+        #     outputs_dropped = []
+        #     for state, state_info in zip(self.states, self.rnn.state_info()):
+        #         if 'state_index' in state_info:
+        #             if state_info['state_index'] == 0:
+        #                 outputs_dropped.append(state)
+        #             elif self.dropout_rate and state_info['state_index'] == -1:
+        #                 outputs_raw.append(state)
+
+        # it seems that the trainer only uses the first return value for backward
+        # so we only add regularization to weighted_loss
+
+        # if self.alpha:
+        #     ar_loss = self.ar_loss(*outputs_dropped)
+        #     weighted_loss = F.elemwise_add(weighted_loss, ar_loss)
+        # if self.beta:
+        #     tar_loss = self.tar_loss(*outputs_raw)
+        #     weighted_loss = F.elemwise_add(weighted_loss, tar_loss)
+        
+        # rnn_outputs is already merged into a single tensor
+        assert not isinstance(self.rnn_outputs, list)
+        if self.alpha:
+            ar_loss = self.ar_loss(self.rnn_outputs)
+            weighted_loss = F.elemwise_add(weighted_loss, ar_loss)
+        if self.beta:
+            tar_loss = self.tar_loss(self.rnn_outputs)
+            weighted_loss = F.elemwise_add(weighted_loss, tar_loss)
 
         return weighted_loss, loss
 

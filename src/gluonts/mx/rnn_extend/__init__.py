@@ -12,14 +12,17 @@
 # permissions and limitations under the License.
 
 # Relative imports
-from . import learning_rate_scheduler as lrs
-from . import model_averaging
-from . import model_iteration_averaging
-from ._base import Trainer
+from .rnn_cell import *
 
-__all__ = ["lrs", "Trainer", "model_averaging", "model_iteration_averaging"]
+__all__ = [
+    "ZoneoutCell", 
+    "VaritionalZoneoutCell", 
+    "RNNZoneoutCell",
+    "AccumulateStatesCell",
+    "ActivationRegularizationLoss",
+    "TemporalActivationRegularizationLoss",
+]
 
-# fix Sphinx issues, see https://bit.ly/2K2eptM
 for item in __all__:
     if hasattr(item, "__module__"):
         setattr(item, "__module__", __name__)
